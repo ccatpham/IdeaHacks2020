@@ -24,8 +24,20 @@ unsigned long finalTime;
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 String password1 = "1234";
+String password2 = "4567";
+const int maxDrink1 = 1;
+const int maxDrink2 = 0;
+const int maxSnack1 = 1;
+const int maxSnack2 = 2;
+int drinks1 = 0;
+int drinks2 = 0;
+int snacks1 = 0;
+int snacks2 = 0;
+
+
 String buff = "";
 int passlen = 0;
+
 
 int servo1 = 1;
 int servo2 = 2;
@@ -68,6 +80,7 @@ byte oldSample, sample;
 int bpm = 0;
 int beatCounter = 0;
 int standardHeartRate = 90;
+int cheatingRate = 30;
 
 void calculateBPM() {
   Serial.print("Your BPM is ");
@@ -112,7 +125,11 @@ void heartCalibration() {
 
 void setup() {
   // put your setup code here, to run once:
+
+  
+  
   Serial.begin(115200);
+  pinMode (HR_RX, INPUT);  //Signal pin to input
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   if (WiFi.waitForConnectResult() != WL_CONNECTED) {
@@ -160,23 +177,23 @@ void setup() {
   server.begin();
 
   //setup for servos
-   ledcSetup(1, 50, TIMER_WIDTH); // channel 1, 50 Hz, 16-bit width
-   ledcAttachPin(13, 1);   // GPIO 13 assigned to channel 
+  ledcSetup(1, 50, TIMER_WIDTH); // channel 1, 50 Hz, 16-bit width
+  ledcAttachPin(13, 1);   // GPIO 13 assigned to channel
 
-   ledcSetup(2,50, TIMER_WIDTH);
-   ledcAttachPin(12, 2);
+  ledcSetup(2, 50, TIMER_WIDTH);
+  ledcAttachPin(12, 2);
 
-   ledcSetup(3,50, TIMER_WIDTH);
-   ledcAttachPin(14, 3);
+  ledcSetup(3, 50, TIMER_WIDTH);
+  ledcAttachPin(14, 3);
 
-   ledcSetup(4,50, TIMER_WIDTH);
-   ledcAttachPin(27, 4);
+  ledcSetup(4, 50, TIMER_WIDTH);
+  ledcAttachPin(27, 4);
 
-   ledcSetup(5,50, TIMER_WIDTH);
-   ledcAttachPin(26, 5);
+  ledcSetup(5, 50, TIMER_WIDTH);
+  ledcAttachPin(26, 5);
 
-   ledcSetup(6,50, TIMER_WIDTH);
-   ledcAttachPin(25, 6);
+  ledcSetup(6, 50, TIMER_WIDTH);
+  ledcAttachPin(25, 6);
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3D for 128x64
     Serial.println(F("SSD1306 allocation failed"));
@@ -207,8 +224,21 @@ void loop() {
       delay(2000);
       //add servo movements
 
-      selectAisle();
+      selectAisle(maxDrink1, maxSnack1, drinks1, snacks1);
     }
+    else if (buff == password2)
+    {
+      delay(2000);
+      printNew("Passcode  Verified", 2);
+      buff = "";
+      passlen = 0;
+      delay(2000);
+      //add servo movements
+
+      selectAisle(maxDrink2, maxSnack2, drinks2, snacks2);
+    }
+
+
     else
     {
       delay(2000);
@@ -240,7 +270,7 @@ void yot(int servo) {
   ledcWrite(servo, COUNT_HIGH);
 }
 
-char getPassword(String &pass, int &passlen)
+char getPassword(String & pass, int &passlen)
 {
   char key = keypad.getKey();
 
@@ -285,7 +315,7 @@ void printNew(String number, int size1)
   display.display();
 }
 
-void selectAisle()
+void selectAisle(int maxDrink, int maxSnack, int &drinks, int &snacks)
 {
   printNew("Select \nAisle", 2);
   char key = NO_KEY;
@@ -299,46 +329,84 @@ void selectAisle()
       printNew("Cancelled", 2);
       break;
     case '1': //coffee
-      printNew("1 chosen", 2);
-      //add heart rate code
-      //initiate heart calibration
-      pinMode (HR_RX, INPUT);  //Signal pin to input
+      printNew("Checking HR, press\nany button to cancel", 1);
+      if (drinks < maxDrink)
+      {
+        //add heart rate code
+        //initiate heart calibration
+        
 
-      Serial.println("Waiting for heart beat...");
-      while (!digitalRead(HR_RX)) {};
-      Serial.println ("Heart beat detected!");
-
-      initialTime = millis();
-      finalTime = initialTime;
-      while (finalTime - initialTime < 30000) {
-        sample = digitalRead(HR_RX);
-        if (sample && (oldSample != sample)) {
-          beatCounter++;
+        Serial.println("Waiting for heart beat...");
+        char key = NO_KEY;
+        while (!digitalRead(HR_RX)) {
+          //Serial.println("Heart Beat Detected!");
+          key = keypad.getKey();
+          if (key != NO_KEY)
+          {
+            Serial.println("Funtion will return");
+            endDisplay();
+            return;}
         }
-        oldSample = sample;
-        finalTime = millis();
+        printNew("Heart beat\ndetected!", 2);
+
+        initialTime = millis();
+        finalTime = initialTime;
+        while (finalTime - initialTime < 30000) {
+        Serial.println("Heart beat detected!");
+          if (sample && (oldSample != sample)) {
+            beatCounter++;
+            Serial.println("Beat");
+          }
+          oldSample = sample;
+          sample = digitalRead(HR_RX);
+          finalTime = millis();
+        }
+        bpm = beatCounter * 2;
+        calculateBPM();
+        delay(500);
+        if (bpm <= standardHeartRate && bpm > cheatingRate ) {
+          Serial.println("Test bpm < rate");
+          openaisle(1, 2, 90, 90);
+          drinks++;
+        }
+        else if (bpm <= cheatingRate) {
+          printNew("Stop\ncheating.", 2);
+        }
+        else if (bpm > standardHeartRate) {
+          printNew("Not now.\nLocked 5m", 2);
+        }
       }
-      bpm = beatCounter * 2;
-      calculateBPM();
-      delay(500);
-      if (bpm <= standardHeartRate) {
-        openaisle(1, 2, 90, 90);
+      else {
+        printNew("Exceed\nmax:" + String(maxDrink), 2)   ;
       }
 
       break;
     case '2': //rice krispies
-      printNew("2 chosen", 2);
-      delay(500);
-      openaisle(3, 4, 25, 20);
+      if (snacks < maxSnack) {
+        printNew("2 chosen", 2);
+        delay(500);
+        openaisle(3, 4, 25, 20);
+        snacks += 1;
+      }
+      else {
+        printNew("Exceed\nmax:" + String(maxSnack), 2);
+      }
       break;
     case '3': //reeses
-      printNew("3 chosen", 2);
-      delay(500);
-      openaisle(5, 6, 25, 20);
+      if (snacks < maxSnack) {
+        printNew("3 chosen", 2);
+        delay(500);
+        openaisle(5, 6, 25, 20);
+        snacks += 1;
+      }
+      else {
+        printNew("Exceed\nmax:" + String(maxSnack), 2);
+      }
       break;
     default:
       break;
   }
+  endDisplay();
 }
 
 void openaisle(int front, int back, int anglef, int angleb)
@@ -352,4 +420,10 @@ void openaisle(int front, int back, int anglef, int angleb)
   delay(2000);
   yot(back);
   delay(2000);
+}
+
+void endDisplay()
+{
+  printNew("Have a\nnice day");
+  printNew("");
 }
