@@ -14,3 +14,6 @@
 
 # Software Requirements
 - Arduino IDE
+
+# Project
+![Project Display at Idea Hacks 2020](https://photos.app.goo.gl/xkBYfGMS4zMRDXrv7)
