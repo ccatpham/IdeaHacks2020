@@ -4,8 +4,9 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include "esp32-hal-ledc.h"
-#include <AsyncTCP.h>
-#include <ESPAsyncWebServer.h>
+//#include <AsyncTCP.h>
+//#include <ESPAsyncWebServer.h>
+#include <WebServer.h>
 #include <Time.h>
 #include <Arduino.h>
 
@@ -25,14 +26,17 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 String password1 = "1234";
 String password2 = "4567";
+String password3 = "0728";
 const int maxDrink1 = 1;
 const int maxDrink2 = 0;
-const int maxSnack1 = 1;
-const int maxSnack2 = 2;
+const int maxSnack1 = 0;
+const int maxSnack2 = 1;
 int drinks1 = 0;
 int drinks2 = 0;
 int snacks1 = 0;
 int snacks2 = 0;
+unsigned long timeLocked1 = 0;
+
 
 
 String buff = "";
@@ -63,16 +67,14 @@ Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
 char getPassword(String &pass, int &passlen);
 void printNew(String number, int size1 = 5);
 
-AsyncWebServer server(80);
+WebServer server(80);
+
+String userName = "Denil";
+String denilHeart = "88";
 
 // REPLACE WITH YOUR NETWORK CREDENTIALS
 const char* ssid = "Samsung Galaxy S7 edge 7512";
 const char* password = "IDEAHACK9876";
-
-const char* PARAM_INPUT_1 = "input1";
-const char* PARAM_INPUT_2 = "input2";
-const char* PARAM_INPUT_3 = "input3";
-const char* PARAM_INPUT_4 = "input4";
 
 // Heart Rate Sensor Defintions
 const int HR_RX = 34;
@@ -86,33 +88,10 @@ void calculateBPM() {
   Serial.print("Your BPM is ");
   Serial.println(bpm);
   //Serial.println('/');
+  beatCounter = 0;
 }
-const char index_html[] PROGMEM = R"rawliteral(
-<!DOCTYPE HTML><html><head>
-  <title>ESP Input Form</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  </head><body>
-  <form action="/get">
-    input1: <input type="text" name="input1">
-    <input type="submit" value="Submit">
-  </form><br>
-  <form action="/get">
-    input2: <input type="text" name="input2">
-    <input type="submit" value="Submit">
-  </form><br>
-  <form action="/get">
-    input3: <input type="text" name="input3">
-    <input type="submit" value="Submit">
-  </form>
-  <form action="/get">
-    input1: <input type="text" name="input4">
-    <input type="submit" value="Submit">
-  </form><br>
-</body></html>)rawliteral";
 
-void notFound(AsyncWebServerRequest *request) {
-  request->send(404, "text/plain", "Not found");
-}
+
 
 void heartCalibration() {
   sample = digitalRead(HR_RX);  //Store signal output
@@ -130,52 +109,28 @@ void setup() {
   
   Serial.begin(115200);
   pinMode (HR_RX, INPUT);  //Signal pin to input
-  WiFi.mode(WIFI_STA);
+ 
+  Serial.println("Connecting to ");
+  Serial.println(ssid);
+
+  //connect to your local wi-fi network
   WiFi.begin(ssid, password);
-  if (WiFi.waitForConnectResult() != WL_CONNECTED) {
-    Serial.println("WiFi Failed!");
-    return;
+
+  //check wi-fi is connected to wi-fi network
+  while (WiFi.status() != WL_CONNECTED) {
+  delay(1000);
+  Serial.print(".");
   }
-  Serial.println();
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
+  Serial.println("");
+  Serial.println("WiFi connected..!");
+  Serial.print("Got IP: ");  Serial.println(WiFi.localIP());
 
-  // Send web page with input fields to client
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest * request) {
-    request->send_P(200, "text/html", index_html);
-  });
+  server.on("/", handle_OnConnect);
+  server.onNotFound(handle_NotFound);
 
-  // Send a GET request to <ESP_IP>/get?input1=<inputMessage>
-  server.on("/get", HTTP_GET, [] (AsyncWebServerRequest * request) {
-    String inputMessage;
-    String inputParam;
-    // GET input1 value on <ESP_IP>/get?input1=<inputMessage>
-    if (request->hasParam(PARAM_INPUT_1)) {
-      inputMessage = request->getParam(PARAM_INPUT_1)->value();
-      inputParam = PARAM_INPUT_1;
-    }
-    // GET input2 value on <ESP_IP>/get?input2=<inputMessage>
-    else if (request->hasParam(PARAM_INPUT_2)) {
-      inputMessage = request->getParam(PARAM_INPUT_2)->value();
-      inputParam = PARAM_INPUT_2;
-    }
-    // GET input3 value on <ESP_IP>/get?input3=<inputMessage>
-    else if (request->hasParam(PARAM_INPUT_3)) {
-      inputMessage = request->getParam(PARAM_INPUT_3)->value();
-      inputParam = PARAM_INPUT_3;
-    }
-    else {
-      inputMessage = "No message sent";
-      inputParam = "none";
-    }
-    Serial.println(inputMessage);
-    request->send(200, "text/html", "HTTP GET request sent to your ESP on input field ("
-                  + inputParam + ") with value: " + inputMessage +
-                  "<br><a href=\"/\">Return to Home Page</a>");
-  });
-  server.onNotFound(notFound);
   server.begin();
-
+  Serial.println("HTTP server started");
+  
   //setup for servos
   ledcSetup(1, 50, TIMER_WIDTH); // channel 1, 50 Hz, 16-bit width
   ledcAttachPin(13, 1);   // GPIO 13 assigned to channel
@@ -213,9 +168,10 @@ void setup() {
 }
 
 void loop() {
+   server.handleClient();
   // put your main code here, to run repeatedly:
   if (getPassword(buff, passlen) == '#') {
-    if (buff == password1)
+    if (buff == password1 && ((millis()-timeLocked1)> 60000 || timeLocked1 == 0))
     {
       delay(2000);
       printNew("Passcode  Verified", 2);
@@ -236,6 +192,10 @@ void loop() {
       //add servo movements
 
       selectAisle(maxDrink2, maxSnack2, drinks2, snacks2);
+    }
+    else if (buff == password3)
+    {
+      openaisle(1, 2, 90, 90);
     }
 
 
@@ -343,7 +303,7 @@ void selectAisle(int maxDrink, int maxSnack, int &drinks, int &snacks)
           key = keypad.getKey();
           if (key != NO_KEY)
           {
-            Serial.println("Funtion will return");
+            Serial.println("Function will return");
             endDisplay();
             return;}
         }
@@ -352,10 +312,10 @@ void selectAisle(int maxDrink, int maxSnack, int &drinks, int &snacks)
         initialTime = millis();
         finalTime = initialTime;
         while (finalTime - initialTime < 30000) {
-        Serial.println("Heart beat detected!");
+//        Serial.println("Heart beat detected!");
           if (sample && (oldSample != sample)) {
             beatCounter++;
-            Serial.println("Beat");
+            //Serial.println("Beat");
           }
           oldSample = sample;
           sample = digitalRead(HR_RX);
@@ -373,7 +333,9 @@ void selectAisle(int maxDrink, int maxSnack, int &drinks, int &snacks)
           printNew("Stop\ncheating.", 2);
         }
         else if (bpm > standardHeartRate) {
-          printNew("Not now.\nLocked 5m", 2);
+          printNew("Not now.\nLocked 1m", 2);
+          timeLocked1 = millis();
+          
         }
       }
       else {
@@ -424,6 +386,64 @@ void openaisle(int front, int back, int anglef, int angleb)
 
 void endDisplay()
 {
-  printNew("Have a\nnice day");
+  delay(2000);
+  printNew("Have a\nnice day",2);
+  delay(2000);
   printNew("");
+}
+
+void handle_OnConnect() {
+ 
+  server.send(200, "text/html", SendHTML(userName,denilHeart)); 
+}
+
+void handle_NotFound(){
+  server.send(404, "text/plain", "Not found");
+}
+
+String SendHTML(String userName, String denilHeart ){
+  String ptr = "<!DOCTYPE html><html><head>";
+ptr+="     <title>Amending with Vending</title> \n";
+ptr+="     <style> h5 { margin-top: 0px; margin-bottom: 3px;} </style> \n";
+ptr+=" </head> \n";
+ptr+=" <body> \n";
+ptr+="     <div class=\"container\"> \n";
+ptr+="         <div class=\"row\" style=\"margin: 5px; padding: 1px; border: 1px solid black; border-radius: 10px;\"> \n";
+ptr+="             <p style=\"text-align: center;\">Amending with Vending</p> \n";
+ptr+="         </div> \n";
+ptr+="         <div class=\"row\" style=\"margin: 5px; padding: 10px; border: 1px solid black; border-radius: 10px;\"> \n";
+ptr+="             <h5>Name</h5> \n";
+ptr+="             <h7>";
+ptr+=                   userName;
+ptr+="              </h7> \n";
+ptr+="         </div> \n";
+ptr+="         <div class=\"row\" style=\"margin: 5px; padding: 10px; border: 1px solid black; border-radius: 10px;\"> \n";
+ptr+="             <h5>Heart Rate</h5> \n";
+ptr+="             <h7> ";
+ptr+=                  denilHeart;
+ptr+="             </h7> \n";
+ptr+="         </div> \n";
+ptr+="         <div class=\"row\" style=\"margin: 5px; padding: 10px; padding-bottom: 10px; border: 1px solid black; border-radius: 10px;\"> \n";
+ptr+="             <h5>Daily Maximum Snacks</h5> \n";
+ptr+="             <progress value=\"1\" max=\"5\"></progress> <span>1</span> \n";
+ptr+="         </div> \n";
+ptr+="         <div class=\"row\" style=\"margin: 5px; padding: 10px; border: 1px solid black; border-radius: 10px;\"> \n";
+ptr+="             <h5>Items Available</h5> \n";
+ptr+="             <ul> \n";
+ptr+="                 <li>Reese's Cup</li> \n";
+ptr+="                 <li>Rice Krispie Treats</li> \n";
+ptr+="                 <li>Energy Drink</li> \n";
+ptr+="             </ul> \n";
+ptr+="         </div> \n";
+ptr+="         <div class=\"row\" style=\"margin: 5px; padding: 10px; border: 1px solid black; border-radius: 10px;\"> \n";
+ptr+="             <h5>Heart Rate History</h5> \n";
+ptr+="             <ul> \n";
+ptr+="                 <li>Past History Here</li> \n";
+ptr+="             </ul> \n";
+ptr+="         </div> \n";
+ptr+="     </div> \n";
+ptr+=" </body> \n";
+ptr+=" </html> \n";
+
+  return ptr;
 }
